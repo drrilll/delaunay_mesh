@@ -1,10 +1,13 @@
 #include "geom_2d.h"
 #include "triangle_properties.hpp"
 
-Geom_2D::Geom_2D(Mesh *mesh, Prop *samples)
+Geom_2D::Geom_2D(Mesh *mesh, Prop *samples, Flippable *is_flippable, Delaunay_indicator* is_NDE, int score_type)
 {
     this->mesh = mesh;
     this->samples = samples;
+    this->is_flippable = is_flippable;
+    this->is_NDE = is_NDE;
+    this->score_type = score_type;
 }
 
 /**
@@ -66,16 +69,17 @@ int Geom_2D::get_sample_point(Mesh::EdgeHandle &ehandle){
 
     vector<Mesh::Point>* samps;
     samps = &(mesh->property(*samples, ehandle));
-    int score;
+    double score;
     Point_2D p2d(0.0,0.0,0.0);
     int maxScore = 0;
     int maxIndex = 0;
 
-    cout << "samps size: "<<samps->size()<<endl;
     if (samps->size()==0){
-        cout<<"*************************"<<endl;
+        cout<<"*************************"<<endl<<"0 samples"<<endl;
         output_point(ehandle);
         cout<<"*************************"<<endl;
+        //this should never happen....but it does.
+        return -1;
 
     }
     for (int i = 0; i < samps->size(); i++){
@@ -84,11 +88,25 @@ int Geom_2D::get_sample_point(Mesh::EdgeHandle &ehandle){
         //void Geom_2D::mesh_to_plane(Mesh::HalfedgeHandle heh, Mesh::Point &samp, Point_2D &p0, Point_2D &p1, Point_2D &dest){
         score = 0;
         mesh_to_plane(heh, (*samps)[i], (p[0]), (p[1]), p2d);
-        if (distance2d(cc, p2d)<r[0]){
-            score ++;
-        }
-        if (distance2d(cc+2, p2d)<r[1]){
-            score ++;
+
+        if (score_type == 1){
+            if (distance2d(cc, p2d)<r[0]){
+                score += 1.5;
+            }
+            if (distance2d(cc+2, p2d)<r[1]){
+                score += 1.5;
+            }
+        }else if (score_type == 0){
+            if (distance2d(cc, p2d)<r[0]){
+                score ++;
+            }
+            if (distance2d(cc+2, p2d)<r[1]){
+                score ++;
+            }
+        }else if (score_type == 2){
+            if ((distance2d(cc, p2d)<r[0])&&(distance2d(cc+2, p2d)<r[1])){
+                score += 5;
+            }
         }
 
         for (int j = 2; j < 6; j++){
@@ -102,8 +120,20 @@ int Geom_2D::get_sample_point(Mesh::EdgeHandle &ehandle){
         }
 
     }
-    cout<<"max Score: "<<maxScore<<endl;
-    cout<<"index: "<<maxIndex<<endl;
+    //cout<<"max Score: "<<maxScore<<endl;
+    //if ((maxIndex == 0)||(maxIndex == samps->size()-1)) {
+    if(samps->size()==0){
+        cout<<"*************************"<<endl;
+        cout<<"******************index: "<<maxIndex<<endl;
+        cout<<"*************************"<<endl;
+        cout<<"samples size: "<<samps->size()<<endl;
+        cout<<" is flippable "<< mesh->property(*is_flippable, ehandle)<<endl;
+        cout<<" is Delaunay "<< mesh->property(*is_NDE, ehandle)<<endl;
+        output_point(ehandle);
+        cout<<"length: "<<mesh->calc_edge_length(ehandle)<<endl;
+        cout<<"max score "<<maxScore<<endl;
+
+    }
     return maxIndex;
 }
 

@@ -7,7 +7,7 @@ typedef Mesh::Point Point_2D;
 class Geom_2D
 {
 public:
-    Geom_2D(Mesh* mesh, Prop *samples);
+    Geom_2D(Mesh* mesh, Prop *samples, Flippable* is_flippable, Delaunay_indicator* is_NDE, int score_type);
     int get_sample_point(Mesh::EdgeHandle &ehandle);
 
     Mesh::Scalar get_interval(Mesh::HalfedgeHandle &heh, Mesh::Scalar &i1);
@@ -32,6 +32,9 @@ public:
 private:
     Mesh* mesh;
     Prop* samples;
+    Flippable* is_flippable;
+    Delaunay_indicator* is_NDE;
+    int score_type = 0;
 };
 
 #endif // GEOM_2D_H

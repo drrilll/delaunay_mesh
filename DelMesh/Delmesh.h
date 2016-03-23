@@ -33,6 +33,7 @@ public:
      */
     void make_Delaunay_mesh();
 
+    void sanity_check();
 
 
     /*
@@ -59,7 +60,10 @@ public:
      * We check the angles opposite the edge to see if they
      * sum to <= pi.
      */
-    bool is_nd_edge(Mesh::EdgeHandle edge);
+    bool is_nd_edge(Mesh::EdgeHandle edge, bool output);
+
+    void process_face(Mesh::VertexHandle &from_split_edge, Mesh::VertexHandle &from_new_edge, Mesh::VertexHandle &from_old_edge,
+                      Mesh::FaceHalfedgeIter &fhIt, bool sample, int index);
 
     /*
      * Find all non-Delaunay edges and put them in a priority queue for
@@ -67,6 +71,9 @@ public:
      */
     void find_nd_edges();
 
+    bool equals(Mesh::Point p1, Mesh::Point p2);
+
+    bool is_on_edge(Mesh::Point &v, Mesh::EdgeHandle &eh);
     void test_face_colors();
 
     Mesh* getMesh();
@@ -85,7 +92,7 @@ private:
 
     Mesh mesh;
     Prop samples;
-    Delauny_indicator is_NDE;
+    Delaunay_indicator is_NDE;
     Flippable is_flippable;
     Mesh::Scalar pv, pe;
     my_p_queue* q;

@@ -13,13 +13,16 @@
 #include <OpenMesh/Core/Mesh/PolyMeshT.hh>
 
 using namespace std;
-//#define INPUT "ateneav.obj"
+//#define INPUT "ateneav2.obj"
 #define INPUT "cube2.obj"
-#define OUTPUT "out-cube.obj"
+#define OUTPUT "cube-out2.obj"
 //0 = priority queue
 //1 = queue
 //2 = stack
 #define DATA_STRUCTURE 0
+#define score_type 2
+#define TRUE 1
+#define FALSE 0
 
 
 DelMesh::DelMesh(){
@@ -54,7 +57,7 @@ DelMesh::DelMesh(){
     //non-Delaunay edges data structure
 
     q = new my_p_queue(&mesh, DATA_STRUCTURE);
-    g2d = new Geom_2D(&mesh, &samples);
+    g2d = new Geom_2D(&mesh, &samples, &is_flippable, &is_NDE, score_type);
 
 
 }
@@ -77,6 +80,41 @@ void DelMesh::process_mesh(){
 
     make_Delaunay_mesh();
 
+    sanity_check();
+
+    while(q->size()>0){
+        make_Delaunay_mesh();
+        sanity_check();
+    }
+
+}
+
+void DelMesh::sanity_check(){
+    Mesh::EdgeIter eBegin, eEnd, eIt;
+    eBegin = mesh.edges_begin();
+    eEnd = mesh.edges_end();
+
+    int count = 0;
+
+    for (eIt = eBegin; eIt != eEnd; eIt++){
+        //add sample points to the edge
+        if (!mesh.is_boundary(*eIt)){
+            if (is_nd_edge(*eIt, true)){
+                if (mesh.property(is_flippable, *eIt)==FALSE){
+                    if (mesh.property(samples, *eIt).size()==0){
+                        cout << "bad edge, length "<<mesh.calc_edge_length(*eIt)<<endl;
+                    }else{
+                        q->push(*eIt);
+                    }
+                    count ++;
+                }else{
+                    cout<<"flipping"<<endl;
+                    mesh.flip(*eIt);
+                }
+            }
+        }
+    }
+    cout<<"Non-Delaunay edges: "<<count<<endl;
 }
 
 /**
@@ -91,7 +129,7 @@ void DelMesh::make_Delaunay_mesh(){
     Mesh::Point point;
     Mesh::Point p1, p2;
     Mesh::HalfedgeHandle heh1, heh2;
-    Mesh::VertexHandle to, from, vh1, vh2, mid;
+    Mesh::VertexHandle to, from, vh1, vh2, mid, v;
     Mesh::FaceHandle fh1, fh2;
     vector<Mesh::VertexHandle> vec;
 
@@ -99,13 +137,20 @@ void DelMesh::make_Delaunay_mesh(){
     while(!q->empty()){
         //cout<<"counting iterations..."<<endl;
         count ++;
-        if (count >50) return;
-        cout<<"edges: "<<mesh.n_edges()<<endl;
+        //if (count >1) return;
+        cout<<"edges: "<<mesh.n_edges()<<" count: "<<count<<" Stack size: "<<q->size()<<endl;
         eh = q->top();
         q->pop();
 
         //find the right sample point
         index = g2d->get_sample_point(eh);
+
+        if (index == -1){
+            //well fuck. There is no provision for this, because theoretically it should
+            //never happen. But it does.
+            continue;
+            //we pretend it doesn't
+        }
 
         //assuming that this invokes the copy constructor, since
         //we will be deleting the edge
@@ -113,7 +158,7 @@ void DelMesh::make_Delaunay_mesh(){
 
         point = samps.at(index);
 
-        cout<<"samps index point: "<<samps[index]<<endl;
+        //cout<<"samps index point: "<<samps[index]<<endl;
 
         heh1 = mesh.halfedge_handle(eh, 0);
         heh2 = mesh.halfedge_handle(eh, 1);
@@ -143,8 +188,17 @@ void DelMesh::make_Delaunay_mesh(){
         // Flip flippable edges.
         mid = mesh.add_vertex(point);
         p1 = mesh.point(mid);
-        cout <<"added point:" <<p1<<endl;
+        //cout <<"added point:" <<p1<<endl;
 
+        /* From here we add 4 faces. However, we need access to the edges, and the
+         * only way to get them is using an iterator, which does not start at
+         * any particular edge. So we have to test each edge using, in this case,
+         * vertex handles. Unless that doesn't work.
+         */
+
+        Mesh::EdgeHandle eh;
+
+        /************* Face 1 *******************/
         vec.clear();
         vec.push_back(from);
         vec.push_back(mid);
@@ -152,116 +206,188 @@ void DelMesh::make_Delaunay_mesh(){
         Mesh::FaceHandle fh = mesh.add_face(vec);
 
         //add in the samples in the split edge
-        Mesh::FECWWIter feIt = mesh.fe_ccwbegin(fh);
-        for (int i = 0; i < index; i++){
-            mesh.property(samples, *feIt).push_back(samps[i]);
-        }
+        Mesh::FaceHalfedgeIter fhIt = mesh.fh_iter(fh);
 
-        //this is the new edge. It will always be Delaunay for this step.
-        //There are no sample points, but it is flippable.
-        feIt++;
-        mesh.property(is_flippable, *feIt) = 1;
 
-        //this edge was present before. It may be ND at this point.
-        feIt++;
-        if (mesh.property(is_NDE, *feIt)==1){
-            if (mesh.property(is_flippable, *feIt)){
-                mesh.flip(*feIt);
+        //iterate over the edges, figure out what we got and how to handle it
+        for (int i = 0; i < 3; i ++){
+            eh = mesh.edge_handle(*fhIt);
+            v = mesh.from_vertex_handle(*fhIt);
+
+            // edge (from, mid)
+            if (v == from){
+                //we want to put the samples on, but we have to
+                //put the correct ones
+                if (is_on_edge(samps[0], eh)){
+                    for (int i = 0; i < index; i++){
+                        mesh.property(samples, eh).push_back(samps[i]);
+                    }
+                }else if (is_on_edge(samps[samps.size()-1], eh)){
+                    for (int i = index +1; i < samps.size(); i++){
+                        mesh.property(samples, eh).push_back(samps[i]);
+                    }
+                }else{
+                    //put a dummy node for testing
+                    cout<<"**********DUMMY NODE**************"<<endl;
+                    mesh.property(samples, eh).push_back(Mesh::Point(1000,0,0));
+                }
+                // edge (mid, vh1)
+            }else if (v == mid){
+                mesh.property(is_flippable, eh) = TRUE;
+                // edge (vh1, from)
+            }else if (v == vh1){
+                if (mesh.property(is_NDE, eh)==1){
+                    if (mesh.property(is_flippable, eh)==TRUE){
+                        mesh.flip(eh);
+                    }
+                }else if (is_nd_edge(eh, false)){
+                    if (mesh.property(is_flippable, eh)==TRUE){
+                        mesh.flip(eh);
+                    }else{
+                        mesh.property(is_NDE, eh) = TRUE;
+                        //cout<<"pushing vh1, from"<<endl;
+                        //g2d->output_point(eh);
+                        q->push(eh);
+                    }
+                }
+
+            }else{
+                cout<<"damn"<<endl;
             }
-        }else if (is_nd_edge(*feIt)){
-            mesh.property(is_NDE, *feIt) = 1;
-            cout<<"pushing1"<<endl;
-            g2d->output_point(*feIt);
-            q->push(*feIt);
+            fhIt++;
         }
 
+        /************* Face 2 *******************/
         vec.clear();
         vec.push_back(from);
         vec.push_back(vh2);
         vec.push_back(mid);
-        cout<<"from: "<<mesh.point(from)<<endl;
-        cout<<"vh2: "<<mesh.point(vh2)<<endl;
-        cout<<"mid: "<<mesh.point(mid)<<endl;
+//        cout<<"from: "<<mesh.point(from)<<endl;
+//        cout<<"vh2: "<<mesh.point(vh2)<<endl;
+//        cout<<"mid: "<<mesh.point(mid)<<endl;
 
         fh = mesh.add_face(vec);
-        feIt = mesh.fe_ccwbegin(fh);
-        //(to,vh2)
-        if (mesh.property(is_NDE, *feIt)==1){
-            if (mesh.property(is_flippable, *feIt)){
-                mesh.flip(*feIt);
+        fhIt = mesh.fh_iter(fh);
+
+        //iterate over the edges, figure out what we got and how to handle it
+        //we have already added samples above, so we skip that step
+        for (int i = 0; i < 3; i ++){
+            eh = mesh.edge_handle(*fhIt);
+            v = mesh.from_vertex_handle(*fhIt);
+
+            // edge (mid, from)
+            if (v == vh2){
+                mesh.property(is_flippable, eh) = TRUE;
+            // edge (from, vh2)
+            }else if (v == from){
+                if (mesh.property(is_NDE, eh)==TRUE){
+                    if (mesh.property(is_flippable, eh)==TRUE){
+                        mesh.flip(eh);
+                    }
+                }else if (is_nd_edge(eh, false)){
+                    if (mesh.property(is_flippable, eh)==TRUE){
+                        mesh.flip(eh);
+                    }else{
+                        mesh.property(is_NDE, eh) = TRUE;
+                        //cout<<"pushing from, vh2"<<endl;
+                        //g2d->output_point(eh);
+                        q->push(eh);
+                    }
+                }
+
             }
-        }else if (is_nd_edge(*feIt)){
-            mesh.property(is_NDE, *feIt) = 1;
-            cout<<"pushing2: "<<endl;
-            g2d->output_point(*feIt);
-            cout<<"edge length: "<<mesh.calc_edge_length(*feIt)<<endl;
-            vector<Mesh::Point>* samps;
-            samps = &(mesh.property(samples, *feIt));
-            cout<<"sample size: "<<samps->size()<<endl;
-            q->push(*feIt);
+            fhIt++;
         }
 
-        /*********************************testing****/
-        feIt++;
-        g2d->output_point(*feIt);
-        feIt++;
-        g2d->output_point(*feIt);
-
-//        Mesh::Point p1 = mesh.point(mesh.to_vertex_handle(mesh.halfedge_handle(*feIt,0)));
-//        Mesh::Point p2 = mesh.point(mesh.from_vertex_handle(mesh.halfedge_handle(*feIt,0)));
-
-//        cout <<"point1: "<<p1<<endl;
-//        cout <<"point2: "<<p2<<endl;
-
-
+        /************* Face 3 *******************/
         vec.clear();
         vec.push_back(to);
         vec.push_back(vh1);
         vec.push_back(mid);
+
         fh = mesh.add_face(vec);
-        feIt = mesh.fe_ccwbegin(fh);
-        //(from, vh1)
-        if (mesh.property(is_NDE, *feIt)==1){
-            if (mesh.property(is_flippable, *feIt)){
-                mesh.flip(*feIt);
+        fhIt = mesh.fh_iter(fh);
+
+        //iterate over the edges, figure out what we got and how to handle it
+        for (int i = 0; i < 3; i ++){
+            eh = mesh.edge_handle(*fhIt);
+            v = mesh.from_vertex_handle(*fhIt);
+
+            // edge (mid, to)
+            if (v == mid){
+                //we want to put the samples on, but we have to
+                //put the correct ones
+                if (is_on_edge(samps[0], eh)){
+                    for (int i = 0; i < index; i++){
+                        mesh.property(samples, eh).push_back(samps[i]);
+                    }
+                }else if (is_on_edge(samps[samps.size()-1], eh)){
+                    for (int i = index +1; i < samps.size(); i++){
+                        mesh.property(samples, eh).push_back(samps[i]);
+                    }
+                }else{
+                    //put a dummy node for testing
+                    mesh.property(samples, eh).push_back(Mesh::Point(1000,0,0));
+                }
+            // edge (vh1, mid) has been handled
+            // edge (to, vh1)
+            }else if (v == to){
+                if (mesh.property(is_NDE, eh)==TRUE){
+                    if (mesh.property(is_flippable, eh)==TRUE){
+                        mesh.flip(eh);
+                    }
+                }else if (is_nd_edge(eh, false)){
+                    if (mesh.property(is_flippable, eh)==TRUE){
+                        mesh.flip(eh);
+                    }else{
+                        mesh.property(is_NDE, eh) = TRUE;
+                        //cout<<"pushing to, vh1"<<endl;
+                        //g2d->output_point(eh);
+                        q->push(eh);
+                    }
+                }
+
             }
-        }else if (is_nd_edge(*feIt)){
-            mesh.property(is_NDE, *feIt) = 1;
-            cout<<"pushing3"<<endl;
-            g2d->output_point(*feIt);
-            q->push(*feIt);
+            fhIt++;
         }
 
-        feIt++; //(vh1,mid)
-        mesh.property(is_flippable, *feIt) = 1;
-        //the other half of our split edge, (from, mid)
-        feIt++;
-        for (int i = index +1; i < samps.size(); i++){
-            //cout<<"pushing back "<<i<<endl;
-            mesh.property(samples, *feIt).push_back(samps[i]);
-        }
-
+        /************* Face 4 *******************/
         vec.clear();
         vec.push_back(mid);
         vec.push_back(vh2);
         vec.push_back(to);
         fh = mesh.add_face(vec);
-        feIt = mesh.fe_ccwbegin(fh);
-        mesh.property(is_flippable, *feIt) = 1; //(mid, vh2)
+        fhIt = mesh.fh_iter(fh);
 
-        feIt++; //(vh2, from)
-        if (mesh.property(is_NDE, *feIt)==1){
-            if (mesh.property(is_flippable, *feIt)){
-                mesh.flip(*feIt);
+        //iterate over the edges, figure out what we got and how to handle it
+        for (int i = 0; i < 3; i ++){
+            eh = mesh.edge_handle(*fhIt);
+            v = mesh.from_vertex_handle(*fhIt);
+
+            // edge (to, mid) has been handled
+            // edge (mid, vh2) has been handled
+            // edge (vh2, to)
+            if (v == vh2){
+                if (mesh.property(is_NDE, eh)==1){
+                    if (mesh.property(is_flippable, eh)==TRUE){
+                        mesh.flip(eh);
+                    }
+                }else if (is_nd_edge(eh, false)){
+                    if (mesh.property(is_flippable, eh)==TRUE){
+                        mesh.flip(eh);
+                    }else{
+                        mesh.property(is_NDE, eh) = TRUE;
+                        //cout<<"pushing vh2, to"<<endl;
+                        //g2d->output_point(eh);
+                        q->push(eh);
+                    }
+                }
+
             }
-        }else if (is_nd_edge(*feIt)){
-            mesh.property(is_NDE, *feIt) = 1;
-            cout<<"pushing4"<<endl;
-
-            q->push(*feIt);
+            fhIt++;
         }
 
-        cout<<"stack size: "<<q->size()<<endl;
+        //cout<<"stack size: "<<q->size()<<endl;
 
         //I think that is everything. Looks like bug heaven.
 
@@ -280,6 +406,48 @@ void DelMesh::make_Delaunay_mesh(){
     }
 
 }
+
+/**
+ * We cheat a bit here. We find the midpoint of the line. Then see if the
+ * vertex is within half the length of the midpoint.
+ * @brief DelMesh::is_on_line
+ * @param v
+ * @param eh
+ * @return
+ */
+bool DelMesh::is_on_edge(Mesh::Point &v, Mesh::EdgeHandle &eh)
+{
+    Mesh::Scalar length = mesh.calc_edge_length(eh)/2;
+    Mesh::HalfedgeHandle heh = mesh.halfedge_handle(eh, 0);
+    Mesh::Point to, from;
+    to = mesh.point(mesh.to_vertex_handle(heh));
+    from = mesh.point(mesh.from_vertex_handle(heh));
+    if ((equals(v,to))||(equals(v,from))){
+        return false;
+    }
+
+    to -= from;
+    to.normalize();
+    to *= length;
+    to += from;
+    bool answer = (g2d->distance3d(to, v)<= length);
+//    if (answer){
+//        cout<<"on edge"<<endl;
+//    }else{
+//        cout<<"NOT on edge"<<endl;
+//    }
+    return answer;
+}
+
+bool DelMesh::equals(Mesh::Point p1, Mesh::Point p2){
+    bool answer = ((p1[0]==p2[0])&&(p1[1]==p2[1])&&(p1[2]==p2[2]));
+//    if (answer){
+//        cout<<"we have a sample point equal to the end point"<<endl;
+//    }
+    return answer;
+}
+
+
 
 void DelMesh::make_constants(){
     /*
@@ -447,7 +615,7 @@ void DelMesh::test_samples(){
      * We check the angles opposite the edge to see if they
      * sum to > pi.
      */
-bool DelMesh::is_nd_edge(Mesh::EdgeHandle edge){
+bool DelMesh::is_nd_edge(Mesh::EdgeHandle edge, bool output = false){
 
     Mesh::HalfedgeHandle hedge = mesh.halfedge_handle(edge, 1);
     Mesh::HalfedgeLoopIter hIt = mesh.hl_begin(hedge);
@@ -470,6 +638,9 @@ bool DelMesh::is_nd_edge(Mesh::EdgeHandle edge){
     if (angle2 <0){
         angle2 = -angle2;
     }
+    if (output&&(angle1+angle2)>M_PI){
+        cout<<"angle: "<<angle1+angle2<<endl;
+    }
     return ((angle1+angle2)>M_PI);
 
 }
@@ -487,20 +658,21 @@ void DelMesh::find_nd_edges(){
     // be on a boundary. I think there is a test for that.
     //TODO boundary test
     for (eIt = eBegin; eIt != eEnd; eIt++){
+        //add sample points to the edge
         if (!mesh.is_boundary(*eIt)){
+            make_sample_points(*eIt);
             if (is_nd_edge(*eIt)){
                 //bullshit doesn't work
                 //mesh.set_color(*eIt, Mesh::Color(0.0,0.0,1.0,1.0));
 
                 //indicate that the edge is non-Delaunay
                 mesh.property(is_NDE, *eIt) = 1;
-                //add sample points to the edge
-                make_sample_points(*eIt);
                 //add the edge to our data structure of current NDE's
                 q->push(*eIt);
             }
         }
     }
+    cout<<"# NDE's: "<<q->size()<<endl;
 
 }
 
@@ -657,7 +829,7 @@ int DelMesh::test_2D_flattening(){
     }
 
 
-    Geom_2D g(&mesh, &samples);
+    Geom_2D g(&mesh, &samples, &is_flippable, &is_NDE, score_type);
 
     Mesh::EdgeIter eIt = mesh.edges_begin();
 
@@ -670,10 +842,8 @@ int DelMesh::test_2D_flattening(){
     cout<<"point 2 x:"<<from[0]<<" y: "<<from[1]<<" z: "<<from[2]<<endl;
 
 
-    cout<<"got here"<<endl;
     vector<Point_2D> p(g.test_flattening(*eIt));
 
-    cout<<"get here?"<<endl;
 
     Mesh mesh2;
     // generate vertices

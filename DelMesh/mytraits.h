@@ -44,7 +44,7 @@ typedef OpenMesh::TriMesh_ArrayKernelT<MyTraits> Mesh;
 typedef OpenMesh::EPropHandleT< vector<Mesh::Point> > Prop;
 //because bool defaults to true, we use int, which defaults to 0, and we can define
 //however we like
-typedef OpenMesh::EPropHandleT<int> Delauny_indicator;
+typedef OpenMesh::EPropHandleT<int> Delaunay_indicator;
 typedef OpenMesh::EPropHandleT<int> Flippable;
 
 
