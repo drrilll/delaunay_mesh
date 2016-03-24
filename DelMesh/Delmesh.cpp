@@ -13,9 +13,10 @@
 #include <OpenMesh/Core/Mesh/PolyMeshT.hh>
 
 using namespace std;
-//#define INPUT "ateneav2.obj"
-#define INPUT "cube2.obj"
-#define OUTPUT "cube-out2.obj"
+#define INPUT "ateneav2.obj"
+//#define INPUT "cube2.obj"
+//#define OUTPUT "cube-out2.obj"
+#define OUTPUT "ate-out.obj"
 //0 = priority queue
 //1 = queue
 //2 = stack
@@ -99,14 +100,15 @@ void DelMesh::sanity_check(){
     for (eIt = eBegin; eIt != eEnd; eIt++){
         //add sample points to the edge
         if (!mesh.is_boundary(*eIt)){
-            if (is_nd_edge(*eIt, true)){
+            if (is_nd_edge(*eIt, false)){
                 if (mesh.property(is_flippable, *eIt)==FALSE){
                     if (mesh.property(samples, *eIt).size()==0){
                         cout << "bad edge, length "<<mesh.calc_edge_length(*eIt)<<endl;
+                        count ++;
                     }else{
                         q->push(*eIt);
                     }
-                    count ++;
+
                 }else{
                     cout<<"flipping"<<endl;
                     mesh.flip(*eIt);
@@ -133,6 +135,7 @@ void DelMesh::make_Delaunay_mesh(){
     Mesh::FaceHandle fh1, fh2;
     vector<Mesh::VertexHandle> vec;
 
+    int dummy_count = 0;
     int count = 0;
     while(!q->empty()){
         //cout<<"counting iterations..."<<endl;
@@ -187,13 +190,11 @@ void DelMesh::make_Delaunay_mesh(){
         //TODO: we should check the NDE flag before we add it a second time.
         // Flip flippable edges.
         mid = mesh.add_vertex(point);
-        p1 = mesh.point(mid);
-        //cout <<"added point:" <<p1<<endl;
 
         /* From here we add 4 faces. However, we need access to the edges, and the
          * only way to get them is using an iterator, which does not start at
          * any particular edge. So we have to test each edge using, in this case,
-         * vertex handles. Unless that doesn't work.
+         * vertex handles.
          */
 
         Mesh::EdgeHandle eh;
@@ -216,6 +217,8 @@ void DelMesh::make_Delaunay_mesh(){
 
             // edge (from, mid)
             if (v == from){
+                cout<< "from,mid, vh1: v ==from "<<i<<endl;
+
                 //we want to put the samples on, but we have to
                 //put the correct ones
                 if (is_on_edge(samps[0], eh)){
@@ -228,21 +231,30 @@ void DelMesh::make_Delaunay_mesh(){
                     }
                 }else{
                     //put a dummy node for testing
-                    cout<<"**********DUMMY NODE**************"<<endl;
+                    cout<<"**********DUMMY NODE 1**************"<<endl;
                     mesh.property(samples, eh).push_back(Mesh::Point(1000,0,0));
+                    dummy_count ++;
                 }
+                int c = mesh.property(samples, eh).size();
+                cout<<c<<" sample edge 1******************************************"<<endl;
                 // edge (mid, vh1)
             }else if (v == mid){
+                cout<< "from,mid, vh1: v ==mid "<<i<<endl;
+
                 mesh.property(is_flippable, eh) = TRUE;
                 // edge (vh1, from)
             }else if (v == vh1){
+                cout<< "from,mid, vh1: v ==vh1 "<<i<<endl;
                 if (mesh.property(is_NDE, eh)==1){
                     if (mesh.property(is_flippable, eh)==TRUE){
-                        mesh.flip(eh);
+                        test_flip(eh);
+                        //mesh.flip(eh);
+
                     }
                 }else if (is_nd_edge(eh, false)){
                     if (mesh.property(is_flippable, eh)==TRUE){
-                        mesh.flip(eh);
+                        test_flip(eh);
+                        //mesh.flip(eh);
                     }else{
                         mesh.property(is_NDE, eh) = TRUE;
                         //cout<<"pushing vh1, from"<<endl;
@@ -274,19 +286,28 @@ void DelMesh::make_Delaunay_mesh(){
         for (int i = 0; i < 3; i ++){
             eh = mesh.edge_handle(*fhIt);
             v = mesh.from_vertex_handle(*fhIt);
+            if (v==mid){
+                int c = mesh.property(samples, eh).size();
+                if (c ==0){cout<<" 0 sample edge 2****************************************** "<<i<<endl;}
+                else{cout<<c<<" sample edge 2****************************************** "<<i<<endl;}
+            }
 
             // edge (mid, from)
             if (v == vh2){
+                cout<< "v ==vh2 "<<i<<endl;
                 mesh.property(is_flippable, eh) = TRUE;
             // edge (from, vh2)
             }else if (v == from){
+                cout<< "v ==from "<<i<<endl;
                 if (mesh.property(is_NDE, eh)==TRUE){
                     if (mesh.property(is_flippable, eh)==TRUE){
-                        mesh.flip(eh);
+                        test_flip(eh);
+                        //mesh.flip(eh);
                     }
                 }else if (is_nd_edge(eh, false)){
                     if (mesh.property(is_flippable, eh)==TRUE){
-                        mesh.flip(eh);
+                        test_flip(eh);
+                        //mesh.flip(eh);
                     }else{
                         mesh.property(is_NDE, eh) = TRUE;
                         //cout<<"pushing from, vh2"<<endl;
@@ -327,18 +348,25 @@ void DelMesh::make_Delaunay_mesh(){
                     }
                 }else{
                     //put a dummy node for testing
+                    cout<<"**********DUMMY NODE 2**************"<<endl;
+                    cout<<"samples "<<samps.size()<<" index: "<<index<<endl;
                     mesh.property(samples, eh).push_back(Mesh::Point(1000,0,0));
+                    dummy_count ++;
                 }
+                int c = mesh.property(samples, eh).size();
+                if (c ==0){cout<<" 0 sample edge 3 ******************************************"<<endl;}
             // edge (vh1, mid) has been handled
             // edge (to, vh1)
             }else if (v == to){
                 if (mesh.property(is_NDE, eh)==TRUE){
                     if (mesh.property(is_flippable, eh)==TRUE){
-                        mesh.flip(eh);
+                        test_flip(eh);
+                        //mesh.flip(eh);
                     }
                 }else if (is_nd_edge(eh, false)){
                     if (mesh.property(is_flippable, eh)==TRUE){
-                        mesh.flip(eh);
+                        test_flip(eh);
+                        //mesh.flip(eh);
                     }else{
                         mesh.property(is_NDE, eh) = TRUE;
                         //cout<<"pushing to, vh1"<<endl;
@@ -364,17 +392,24 @@ void DelMesh::make_Delaunay_mesh(){
             eh = mesh.edge_handle(*fhIt);
             v = mesh.from_vertex_handle(*fhIt);
 
+            if (v==to){
+                int c = mesh.property(samples, eh).size();
+                if (c ==0){cout<<" 0 sample edge ******************************************"<<endl;}
+            }
+
             // edge (to, mid) has been handled
             // edge (mid, vh2) has been handled
             // edge (vh2, to)
             if (v == vh2){
-                if (mesh.property(is_NDE, eh)==1){
+                if (mesh.property(is_NDE, eh)==TRUE){
                     if (mesh.property(is_flippable, eh)==TRUE){
-                        mesh.flip(eh);
+                        test_flip(eh);
+                        //mesh.flip(eh);
                     }
                 }else if (is_nd_edge(eh, false)){
                     if (mesh.property(is_flippable, eh)==TRUE){
-                        mesh.flip(eh);
+                        test_flip(eh);
+                        //mesh.flip(eh);
                     }else{
                         mesh.property(is_NDE, eh) = TRUE;
                         //cout<<"pushing vh2, to"<<endl;
@@ -404,6 +439,22 @@ void DelMesh::make_Delaunay_mesh(){
          *
          */
     }
+    cout<<"dummy nodes: "<<dummy_count<<endl;
+
+}
+
+void DelMesh::test_flip(Mesh::EdgeHandle eh){
+//    Mesh::VertexHandle to, from, t, f;
+//    Mesh::HalfedgeHandle heh = mesh.halfedge_handle(eh, 0);
+
+//    to = mesh.to_vertex_handle(heh);
+//    from = mesh.from_vertex_handle(heh);
+    mesh.flip(eh);
+
+//    Mesh::HalfedgeHandle heh2 = mesh.halfedge_handle(eh, 0);
+//    t = mesh.to_vertex_handle(heh2);
+//    f = mesh.from_vertex_handle(heh2);
+
 
 }
 

@@ -35,6 +35,7 @@ public:
 
     void sanity_check();
 
+    void test_flip(Mesh::EdgeHandle eh);
 
     /*
      * make the constants pe and pv - see paper
